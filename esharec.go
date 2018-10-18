@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 )
 
 var _proxy string
+var _insecureSkipVerify = false
 
 func main() {
 
@@ -45,10 +47,14 @@ func main() {
 		Timeout: time.Second * 60,
 	}
 
+	var transport = http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: _insecureSkipVerify}}
+
 	if len(_proxy) > 0 {
-		proxyURL, _ := url.Parse("http://127.0.0.1:8888")
-		client.Transport = &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+		proxyURL, _ := url.Parse(_proxy)
+		transport.Proxy = http.ProxyURL(proxyURL)
 	}
+
+	client.Transport = &transport
 
 	url := "https://files.e-share.us/api/2.0/device/validate-token/"
 
