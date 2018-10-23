@@ -174,19 +174,34 @@ XCqi18A/sl6ymWc=
 		log.Fatal(errNewFactory)
 	}
 
-	var c = factory.NewClient(30)
+	var c1 = factory.NewClient(30)
+	var c2 = factory.NewClient(30)
 
-	var r, err = c.ValidateToken()
-	if nil != err {
-		log.Println(err)
+	var r1, r2 map[string]interface{}
+	var err1, err2 error
+	ch1 := make(chan int)
+	go func(c chan int) {
+		r1, err1 = c1.ValidateToken()
+		c <- 1
+	}(ch1)
+
+	ch2 := make(chan int)
+	go func(c chan int) {
+		r2, err2 = c2.ListShares(eshareclient.SharesByMe)
+		c <- 1
+	}(ch2)
+
+	<-ch1
+	if nil != err1 {
+		log.Println(err1)
 	} else {
-		log.Println(r)
+		log.Println(r1)
 	}
 
-	r, err = c.ListShares(eshareclient.SharesByMe)
-	if nil != err {
-		log.Println(err)
+	<-ch2
+	if nil != err2 {
+		log.Println(err2)
 	} else {
-		log.Println(r)
+		log.Println(r2)
 	}
 }
