@@ -3,18 +3,15 @@ package main
 // http://polyglot.ninja/golang-making-http-requests/
 
 import (
-	"bytes"
 	"crypto/rsa"
-	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
-	"net/url"
-	"time"
+	"os"
+
+	"github.com/igremlin/esharec/pkg"
 )
 
 var _proxy string
@@ -158,70 +155,38 @@ XCqi18A/sl6ymWc=
 	}
 
 	//_proxy = "http://127.0.0.1:8888"
-
-	var authInfo = map[string]interface{}{
-		"authtoken":    "eyJ0eXAiOiAiTkNDIn0.eyJ2IjogIllCYUR0SjZ4WWNwZSJ9",
-		"computername": "superbeast",
-		"email":        "i@ncryptedcloud.com",
+	var eshareClientToken, eshareClientDevice, eshareClientEmail, eshareClientServer string
+	if 0 == len(eshareClientToken) {
+		eshareClientToken = os.Getenv("ESHARECLIENT_TOKEN")
 	}
-	_ = authInfo
-
-	//message := map[string]interface{}{}
-	message := map[string]interface{}{
-		"app-version":             "1.1.40.1",
-		"notifications-timestamp": 0,
-		"os-version":              "Windows 10 x64",
-		"platform":                "Windows",
+	if 0 == len(eshareClientDevice) {
+		eshareClientDevice = os.Getenv("ESHARECLIENT_DEVICE")
+	}
+	if 0 == len(eshareClientEmail) {
+		eshareClientEmail = os.Getenv("ESHARECLIENT_EMAIL")
+	}
+	if 0 == len(eshareClientServer) {
+		eshareClientServer = os.Getenv("ESHARECLIENT_SERVER")
 	}
 
-	var v = map[string]interface{}{
-		"app-version": "1.1.40.1",
-		"auth-info":   authInfo,
-		"message":     message,
-		"message-id":  "{9dd4c98d-f34a-4db1-b5c2-50b63968a0f1}",
-		//"message-type": "device/heartbeat/",
-		"ver": "1.0",
+	var factory, errNewFactory = eshareclient.New(eshareClientToken, eshareClientDevice, eshareClientEmail, eshareClientServer, true, _proxy, false)
+	if nil != errNewFactory {
+		log.Fatal(errNewFactory)
 	}
 
-	client := http.Client{
-		Timeout: time.Second * 60,
+	var c = factory.NewClient(30)
+
+	var r, err = c.ValidateToken()
+	if nil != err {
+		log.Println(err)
+	} else {
+		log.Println(r)
 	}
 
-	var transport = http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: _insecureSkipVerify}}
-
-	if len(_proxy) > 0 {
-		proxyURL, _ := url.Parse(_proxy)
-		transport.Proxy = http.ProxyURL(proxyURL)
+	r, err = c.ListShares(eshareclient.SharesByMe)
+	if nil != err {
+		log.Println(err)
+	} else {
+		log.Println(r)
 	}
-
-	client.Transport = &transport
-
-	url := "https://files.e-share.us/api/2.0/device/validate-token/"
-
-	byteMessage, errMarshal := json.Marshal(v)
-	if errMarshal != nil {
-		log.Fatal(errMarshal)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(byteMessage))
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	req.Header.Set("Content-Type", "application/json")
-
-	res, getErr := client.Do(req)
-
-	if getErr != nil {
-		log.Fatal(getErr)
-	}
-	defer res.Body.Close()
-
-	var result map[string]interface{}
-	json.NewDecoder(res.Body).Decode(&result)
-
-	log.Println(result)
-
 }
