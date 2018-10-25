@@ -9,13 +9,41 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/igremlin/esharec/pkg"
 )
 
 var _proxy string
 var _insecureSkipVerify = false
+
+func randomString() string {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+	s := make([]rune, 8)
+	r := []rune(chars)
+	_ = s
+	for i := 0; i < len(s); i++ {
+		s[i] = r[rand.Intn(len(chars))]
+	}
+
+	return string(s)
+}
+
+func randomShareName() string {
+	return fmt.Sprintf("testShare_%s", randomString())
+}
+
+func randomFolderName() string {
+	return fmt.Sprintf("testFolder_%s", randomString())
+}
+
+func randomShareID() string {
+	return uuid.New().String()
+}
 
 func parsePEM(pemString []byte, password []byte) (*rsa.PrivateKey, error) {
 	block, rest := pem.Decode(pemString)
@@ -51,6 +79,8 @@ func parsePEM(pemString []byte, password []byte) (*rsa.PrivateKey, error) {
 }
 
 func main() {
+
+	rand.Seed(time.Now().UTC().UnixNano())
 
 	//https://rietta.com/blog/2012/01/27/openssl-generating-rsa-key-from-command/
 	//
@@ -155,7 +185,9 @@ XCqi18A/sl6ymWc=
 	}
 
 	//_proxy = "http://127.0.0.1:8888"
+
 	var eshareClientToken, eshareClientDevice, eshareClientEmail, eshareClientServer string
+
 	if 0 == len(eshareClientToken) {
 		eshareClientToken = os.Getenv("ESHARECLIENT_TOKEN")
 	}
@@ -192,10 +224,22 @@ XCqi18A/sl6ymWc=
 	}(ch2)
 
 	<-ch1
+	var identityID string
 	if nil != err1 {
 		log.Println(err1)
 	} else {
 		log.Println(r1)
+
+		a, ok := r1["identities"].([]interface{})
+		if ok {
+			for _, v := range a {
+				email := v.(map[string]interface{})["name"]
+				if email == eshareClientEmail {
+					identityID = v.(map[string]interface{})["id"].(string)
+					break
+				}
+			}
+		}
 	}
 
 	<-ch2
@@ -203,5 +247,59 @@ XCqi18A/sl6ymWc=
 		log.Println(err2)
 	} else {
 		log.Println(r2)
+	}
+
+	sharingPolicy := eshareclient.SharingPolicy{
+		CanCreate:           true,
+		CanDownload:         true,
+		OneTimeLink:         false,
+		CanEdit:             true,
+		CanRead:             true,
+		ExpirationInSeconds: 60 * 60 * 24 * 30,
+		LoginRequired:       false,
+		RequireTermsOfUse:   false,
+		SecureMessageBody:   false,
+		SendPinOnEmail:      false,
+		ShowTermsOnce:       false,
+		UseTrackingID:       false,
+		Watermark:           false,
+		CanDelete:           true,
+	}
+
+	shareAttributes := eshareclient.ShareAttributes{
+		OwnerIdentityID: identityID,
+		ShareID:         randomShareID(),
+		ShareName:       randomShareName(),
+	}
+
+	recipients := []string{"igremlin.ma@gmail.com"}
+
+	emailContent := eshareclient.EMailContent{
+		FromEMailAddress: "i@ncryptedcloud.com",
+		Subject:          "this is a test subject",
+		Body:             "this is a test message body",
+		SecureBody:       true,
+	}
+
+	notificationMessage := eshareclient.NotificationMessage{
+		//Text: "Hello, World...from GOLANG client!",
+		EmailContent: &emailContent,
+	}
+	_ = notificationMessage
+
+	var c3 = factory.NewClient(30)
+	var r3 map[string]interface{}
+	var err3 error
+	ch3 := make(chan int)
+	go func(c chan int) {
+		r3, err3 = c3.CreateShare(shareAttributes, sharingPolicy, recipients, &notificationMessage, true)
+		c <- 1
+	}(ch3)
+
+	<-ch3
+	if nil != err3 {
+		log.Println(err3)
+	} else {
+		log.Println(r3)
 	}
 }

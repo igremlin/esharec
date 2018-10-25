@@ -35,6 +35,49 @@ type Factory struct {
 type EShareClient interface {
 	ValidateToken() (map[string]interface{}, error)
 	ListShares(SharesType string) (map[string]interface{}, error)
+	CreateShare(shareAttr ShareAttributes, sharingPolicy SharingPolicy, recipients []string, notification *NotificationMessage, sendNow bool) (map[string]interface{}, error)
+}
+
+// SharingPolicy defines settings of shared data
+type SharingPolicy struct {
+	CanCreate           bool
+	CanDownload         bool
+	OneTimeLink         bool
+	CanEdit             bool
+	CanRead             bool
+	ExpirationInSeconds float64
+	LoginRequired       bool
+	RequireTermsOfUse   bool
+	SecureMessageBody   bool
+	SendPinOnEmail      bool
+	ShowTermsOnce       bool
+	UseTrackingID       bool
+	Watermark           bool
+	CanDelete           bool
+	Pin                 string
+}
+
+// EMailContent defines content of email
+type EMailContent struct {
+	FromEMailAddress string
+	Subject          string
+	Body             string
+	SecureBody       bool
+}
+
+// ShareAttributes defines attributes of a new share
+type ShareAttributes struct {
+	OwnerIdentityID string
+	RootMountID     string
+	ShareID         string
+	ShareName       string
+	FolderPath      string
+}
+
+// NotificationMessage defines notification content
+type NotificationMessage struct {
+	EmailContent *EMailContent
+	Text         string
 }
 
 // Client sends messages to e-Share server
@@ -81,6 +124,7 @@ func New(Token string, DeviceName string, Email string, HostName string, UseHTTP
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: IgnoreSSLErrors},
+		MaxIdleConnsPerHost:   100,
 	}
 
 	if len(ProxyRawURL) > 0 {
@@ -270,4 +314,77 @@ func (c *Client) ListShares(SharesType string) (map[string]interface{}, error) {
 	url := fmt.Sprintf("api/3.0/shares/%s/?include_url=false&include_can_read=true&include_can_download=true", sharesType)
 
 	return c.sendMessage(http.MethodGet, url, false, nil)
+}
+
+// CreateShare creates a new trusted share
+func (c *Client) CreateShare(shareAttr ShareAttributes, sharingPolicy SharingPolicy, recipients []string,
+	notification *NotificationMessage, sendNow bool) (map[string]interface{}, error) {
+	if 0 == len(shareAttr.OwnerIdentityID) {
+		return nil, errors.New("Invalid identity id")
+	}
+	if 0 == len(shareAttr.ShareName) {
+		return nil, errors.New("Invalid share name")
+	}
+
+	if 0 == len(recipients) {
+		return nil, errors.New("Invalid recipients")
+	}
+	if nil != notification && nil != notification.EmailContent &&
+		(0 == len(notification.EmailContent.FromEMailAddress) || 0 == len(notification.EmailContent.Subject) || 0 == len(notification.EmailContent.Body)) {
+		return nil, errors.New("Invalid email content")
+	}
+
+	params := make(map[string]interface{})
+	params["identity_id"] = shareAttr.OwnerIdentityID
+
+	paramsOptions := make(map[string]interface{})
+	paramsOptions["can_create"] = sharingPolicy.CanCreate
+	paramsOptions["can_download"] = sharingPolicy.CanDownload
+	paramsOptions["can_delete"] = sharingPolicy.CanDelete
+	paramsOptions["one_time_link"] = sharingPolicy.OneTimeLink
+	paramsOptions["can_edit"] = sharingPolicy.CanEdit
+	paramsOptions["can_read"] = sharingPolicy.CanRead
+	paramsOptions["expiration"] = sharingPolicy.ExpirationInSeconds
+
+	paramsOptions["login_required"] = sharingPolicy.LoginRequired
+	paramsOptions["require_terms_of_use"] = sharingPolicy.RequireTermsOfUse
+	paramsOptions["secure_message_body"] = sharingPolicy.SecureMessageBody
+	paramsOptions["send_pin_on_email"] = sharingPolicy.SendPinOnEmail
+	paramsOptions["show_terms_once"] = sharingPolicy.ShowTermsOnce
+	paramsOptions["use_tracking_id"] = sharingPolicy.UseTrackingID
+	paramsOptions["watermark"] = sharingPolicy.Watermark
+	if 0 < len(sharingPolicy.Pin) {
+		paramsOptions["pin"] = sharingPolicy.Pin
+	}
+	params["options"] = paramsOptions
+
+	if nil != notification {
+		if nil != notification.EmailContent {
+			emailOptions := make(map[string]interface{})
+			emailOptions["secure_body"] = notification.EmailContent.SecureBody
+			emailOptions["subject"] = notification.EmailContent.Subject
+			emailOptions["body"] = notification.EmailContent.Body
+			emailOptions["mail_from_name"] = notification.EmailContent.FromEMailAddress
+
+			params["mail_content"] = emailOptions
+		}
+
+		if 0 < len(notification.Text) {
+			params["message"] = notification.Text
+		}
+	}
+
+	params["recipients"] = recipients
+	params["share_id"] = shareAttr.ShareID
+	params["share_name"] = shareAttr.ShareName
+	params["send_now"] = sendNow
+
+	if 0 < len(shareAttr.FolderPath) {
+		params["create_private_folder"] = shareAttr.FolderPath
+	}
+
+	if 0 < len(shareAttr.RootMountID) {
+		params["root_mount_id"] = shareAttr.RootMountID
+	}
+	return c.sendMessage(http.MethodPost, "api/3.1/shares/", false, params)
 }
